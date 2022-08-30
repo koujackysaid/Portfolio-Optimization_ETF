@@ -1,0 +1,92 @@
+```
+import yfinance as yf
+import numpy as np
+import matplotlib.pyplot as plt
+import scipy.stats as stat
+
+# Todo: the data download is daily data
+# Todo: if want annualized data, can resample to annualized data first in wrangle step, or *np.sqrt(250) with the final result, or change the functions formula
+# Todo below codes are using resample ffill method to convert to annualized data
+# 1. Determine Timeframe and stocks
+end = '2020-05-01'
+start = '2010-01-01'
+portfolio = ['VTI', 'VGK', 'VPL', 'VWO', 'VGIT',  'TIP', 'BWX', 'WIP']
+# 2. Collect and wrangle the data
+df_Adj_Close = yf.download(portfolio, start, end)['Adj Close']
+df_Adj_Close = df_Adj_Close.resample('A').ffill()
+df_ret = np.log(1 + df_Adj_Close.pct_change()).dropna()
+# 3. Create function to assign weights to the assets in the portfolio randonmly
+def weight_generator(df_ret):
+    weights = np.random.random(len(df_ret.columns))
+    weights /= weights.sum()
+    return weights
+# 4. Create function to cal the portfolio return
+def portfolio_return(weights):
+    return np.dot(weights, df_ret.mean())
+# 5. Create function to cal the portfolio std
+def portfolio_std(weights):
+    return np.sqrt(np.dot(np.dot(df_ret.cov(), weights), weights))
+
+# 6. Conduct Monte Carlo simulation
+w = []
+returns = []
+stds = []
+
+for i in range(200):
+    weights = weight_generator(df_ret) # here can be replaced by disecrete weights, must define weights since it is a input in other 2 functions
+    w.append(weights)
+    returns.append(portfolio_return(weights))
+    stds.append(portfolio_std(weights))
+
+# 7. Find out the efficient frontier combination(return and std)
+min_std = min(stds)
+annual_return = returns[stds.index(min(stds))]
+weighting = w[stds.index(min(stds))]
+efficient_frontier = {
+    'min_std':min_std,
+    'annual_return':annual_return,
+    'portfolio':portfolio,
+    'weighting':weighting
+}
+print(efficient_frontier)
+# 8. Plot out the efficient frontier
+plt.scatter(x=stds, y=returns)
+plt.scatter(x=min(stds), y=returns[stds.index(min(stds))], c='red')
+plt.annotate('EF', xy=(min(stds), returns[stds.index(min(stds))]), xytext=(min(stds), returns[stds.index(min(stds))]+0.025), arrowprops=dict(facecolor='blue', shrink=5))
+
+plt.title('Efficient Frontier')
+plt.xlabel('portfolio std')
+plt.ylabel('portfolio return')
+# refer to the cmap, we can use number to point at certain color, here I am using the value of their mean return to determine their colors
+for i in range(len(df_ret.columns)):
+    plt.scatter(x=df_ret.std().iloc[i], y=df_ret.mean().iloc[i], c=df_ret.mean().iloc[i])
+plt.show()
+
+# todo Cal the portfolio VaR(annualized)
+# Assume using the weighting given by the Efficient Frontier
+def VaR(position, sigma, quantile):
+    return position*sigma*(stat.norm.ppf(quantile))
+
+budget = 10000
+position = budget*weighting
+assets_std = np.array(df_ret.std())
+confidence_level = .95
+
+VaR_array = []
+for i in range(len(portfolio)):
+    VaR_array.append(VaR(position[i], assets_std[i], confidence_level))
+
+vector = np.array(VaR_array)
+
+port_VaR = np.sqrt(np.dot(np.dot(vector,df_ret.corr()), vector))
+
+print('budget: \n', budget)
+print('assets: \n', df_ret.columns)
+print('port_ret_head: \n', df_ret.head())
+print('positions(weighted by the EF): \n', position)
+print('assets std: \n', assets_std)
+print('VaR_each asset(annualized): \n', vector)
+print('ret corr: \n', df_ret.corr())
+
+print('port_VaR(annualized): \n', port_VaR)
+```
